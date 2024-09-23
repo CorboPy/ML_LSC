@@ -25,6 +25,7 @@ import numpy as np
 #np.set_printoptions(threshold=sys.maxsize)
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
+plt.style.use('bmh')
 
 # Scipy
 import scipy.sparse as sparse
@@ -301,7 +302,6 @@ def time_to_minutes(time_str):
 
 def plot_spectrum(df,cols,activity_cols,i):
     """ Plot spectrum of ith entry in the dataframe. """
-    plt.style.use('bmh')
 
     fig, ax = plt.subplots()
     fig.set_figheight(10)
@@ -428,8 +428,7 @@ def main():
     print("Available history: ", result.history.keys())
     plt.plot(result.history['loss'])
     plt.plot(result.history['val_loss'])
-    plt.title('mse')
-    #plt.ylabel('mse')
+    plt.ylabel('mse')
     plt.xlabel('epoch')
     plt.legend(['training','validation'],loc='upper right')
     plt.show()
@@ -437,7 +436,6 @@ def main():
     # plot training curve for R^2 (beware of scale, starts very low negative)
     plt.plot(result.history['r2_score'])
     plt.plot(result.history['val_r2_score'])
-    plt.title('model R^2')
     plt.ylabel('R^2')
     plt.xlabel('epoch')
     plt.legend(['train', 'validation']) #, loc='upper right')
