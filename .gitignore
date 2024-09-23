@@ -1,0 +1,7 @@
+LSC Spectra for AI/
+LSC_spectra_sorted/
+LSC Spectra for AI proj including calibration certs/
+__pycache__/
+transformed_data.xlsx
+.idea/
+test_results/

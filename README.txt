@@ -1,0 +1,1 @@
+Machine Learning for Predicting Beta Source Activity in Liquid Scintillation Counting Data. Python 3.9.12. Numpy 1.22.4, scikit-learn 1.4.2, tensorflow 2.17.0 (keras 3.5.0).
