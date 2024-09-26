@@ -410,12 +410,12 @@ def data_from_files(dir):
                     for file in os.listdir(dir + folder):
                         if file.endswith(isotope+' Q-'+quant_no+'.xls') or (file.endswith(isotope+' Q-'+quant_no+'.xlsx')):
                             try:
-                                calib_excel_df = pd.read_excel(dir+folder+'/'+file, sheet_name='Calculation',usecols="A:U", skiprows=24, nrows=len(df_to_append.index))
+                                calib_excel_df = pd.read_excel(dir+folder+'/'+file, sheet_name='Calculation',usecols="A:U", skiprows=24, nrows=len(df_to_append.index),engine='openpyxl')
                                 calib_excel_df.index = np.arange(1, len(calib_excel_df)+1)
                                 print("Opening 'Calculation' worksheet in "+file)
                             except Exception as err:
                                 print(err)
-                                print('Error - calibration .xls(x) not found for '+dir+folder+'/'+subfolder+'/'+subsubfolder)
+                                print('Error - calibration .xls(x): '+dir+folder+'/'+file+' not openable for '+dir+folder+'/'+subfolder+'/'+subsubfolder)
                                 sys.exit()
                     #with pd.option_context('display.max_rows', None, 'display.max_columns', None):  
                         #print(calib_excel_df)
