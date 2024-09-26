@@ -88,21 +88,7 @@ def parse_file(filename):
         return(spect_list,first_num)
 
 def get_file_df(dir):
-    """Returns dataframe containing Path, Year, Quant, and Radioisotope infomation for each file.
-
-    Args:
-        dir (str): root directory in format:
-         root
-         | 14C
-         |   | {file1}_q1_2021
-         |   | {file2}_q2_2021
-         | 3H
-         |   | {file1}_q1_2021
-         |   | {file2}_q2_2021        
-         | 36CL
-         |   | {file1}_q1_2021
-         |   | {file2}_q2_2021
-    """
+    """Returns dataframe containing Path, Year, Quant, and Radioisotope infomation for each file."""
     
     dict_list = []
     folders = [f for f in os.listdir(dir)]# if os.path.isdir(f)]

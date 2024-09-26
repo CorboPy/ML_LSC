@@ -46,15 +46,15 @@ from sklearn.pipeline import Pipeline
 
 # Tensorflow
 import tensorflow as tf
-from keras.models import Sequential
-from keras.layers import Dense, Softmax
-from scikeras.wrappers import KerasRegressor
-from keras.optimizers import Adam
-from keras.utils import plot_model
+from tensorflow.python import keras
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Softmax
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.utils import plot_model
 
-# Tqdm and tabulate
+# Tqdm
 from tqdm import tqdm
-from tabulate import tabulate
+
 
 # Ignore pandas performance warning
 from warnings import simplefilter
@@ -366,10 +366,10 @@ def main():
         df = parse_and_process(directory)
         # Save to excel here if neccessary
         print("Saving to .xlsx ...")
-        df.to_excel('transformed_data.xlsx')
+        df.to_excel('transformed_data.xlsx',engine='openpyxl')
     else:
         print("transformed_data.xlsx found. Opening...")
-        df = pd.read_excel('transformed_data.xlsx')
+        df = pd.read_excel('transformed_data.xlsx',engine='openpyxl')
         print(df)
 
     ### Setting up X,y train/test and applying PCA ###
@@ -466,7 +466,7 @@ def main():
         if user_input=='y':
             now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
             filename = 'result'+str(now)+'.xlsx'
-            pred_vs_act_df.to_excel('test_results/'+filename)
+            pred_vs_act_df.to_excel('test_results/'+filename,engine='openpyxl')
             break
         elif user_input=='n':
             break
