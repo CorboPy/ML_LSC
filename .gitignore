@@ -3,5 +3,18 @@ LSC_spectra_sorted/
 LSC Spectra for AI proj including calibration certs/
 __pycache__/
 transformed_data.xlsx
+transformed_data_.xlsx
 .idea/
 test_results/
+LSC Spectra for AI proj/
+2024 misc/
+LSC calib info.pptx
+test.py
+animation3H/
+animation14C/
+animation36CL/
+animation55FE/
+animation63NI/
+animation129I/
+sequential_nn.py
+sequential_nn_old.py

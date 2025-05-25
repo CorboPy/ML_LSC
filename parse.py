@@ -7,43 +7,47 @@ from tqdm import tqdm
 from warnings import simplefilter
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
-def check(df):
+def check(first_line, df):
     # Count the number of spectra in the .001 file using the SP marker
-    markers = []
+    markers = [first_line]
     i=0
     for value in df[0]:
         i+=1
         if value[0:2]=='SP':
-            markers.append(i)
+            markers.append(value)
+            #markers.append(int(value[4:6]))
     # Length of markers will be 0 if single spectra, 1 if 2 spectra, etc
     return(markers)
 def clean(df_list):
-    spect_list = []
-    for df in df_list:
+    df = df_list[0]
+
+    # spect_list = []
+    # for df in df_list:
         # Split column by space
-        df = df[0].str.split(' ', expand=True)
+    df = df[0].str.split(' ', expand=True)
 
-        # Remove whitespace (if any)
-        df = df.apply(lambda x: x.strip() if isinstance(x, str) else x)
+    # Remove whitespace (if any)
+    df = df.apply(lambda x: x.strip() if isinstance(x, str) else x)
 
-        # Remove empty col
-        df = df.drop(0,axis='columns')
+    # Remove empty col
+    df = df.drop(0,axis='columns')
 
-        # Move into list
-        spect = []
-        for row in df.values:
-            # For each row, append a list of the values from each column (row_data) to the corresponding range of values in spect
-            for i in range(len(row)):
-                spect.append(row.tolist()[i])
+    # Move into list
+    spect = []
+    for row in df.values:
+        # For each row, append a list of the values from each column (row_data) to the corresponding range of values in spect
+        for i in range(len(row)):
+            spect.append(row.tolist()[i])
 
-        # Remove all "None"
-        spect = [x for x in spect if x is not None]
+    # Remove all "None"
+    spect = [x for x in spect if x is not None]
+    #print(spect)
 
-        # Convert to numerical list
-        spect = [float(i) for i in spect]
-        spect_list.append(np.array(spect))
+    # Convert to numerical list
+    spect = [float(i) for i in spect]
+    # spect_list.append(np.array(spect))
 
-    return(spect_list)
+    return(np.array(spect))
 
 def parse_file(filename):
     """Extracts spectrum/spectra from .001 file.
@@ -57,6 +61,36 @@ def parse_file(filename):
             first_num (int): First spectra number as displayed in the file header
             #REMOVED# isotope (str): Isotope info derived from base directory. e.g. 36CL = Chlorine-36
     """
+    # create lookup library of which spectrum to use for year / isotope
+    lookup_table = {
+        (2020, '3H'): 12,
+        (2020, '14C'): 11,
+
+        (2021, '36CL'): 11,
+
+        (2022, '3H'): 12,
+        (2022, '14C'): 11,
+        (2022, '55FE'): 12,
+        (2022, '63NI'): 11,
+        (2022, '36CL'): 11,
+
+        (2023, '3H'): 12,
+        (2023, '14C'): 11,
+        (2023, '36CL'): 11,  # Q1 has SP11 only, Q3-Q6 has SP11, SP12
+        (2023, '55FE'): 12,
+        (2023, '63NI'): 11,
+        (2023, '129I'): 11,
+
+        (2024, '14C'): 11,
+        (2024, '55FE'): 12,
+        (2024, '63NI'): 11,
+
+        (2025, '36CL'): 11,  # Q1 has SP11 only, Q3-Q6 has SP11, SP12
+        (2025, '129I'): 11,
+
+    }
+    
+    
     # Load into dataframe
     #filename=r"LSC Spectra for AI\2021\Quant-1\36CL10\Q020201N.001"
     try:
@@ -64,28 +98,94 @@ def parse_file(filename):
     except FileNotFoundError as err:
         print(err,'. Ensure path has form e.g. "/dir1/dir2/dir3/36CL2/Q014101N.001"')
         sys.exit()
+    
+    # filanem = C:\Users\alexc\Documents\#Uni\ML_LSC\LSC Spectra for AI proj\2025\Quant 3\36CL18\Q0...
+    isotope_str = filename.split('/')[-2]  # .apply(lambda x: x.split('Quant ')[1].split('/')[1])
+    quant = int(filename.split('/')[-3][-1])
+    year_str = int(filename.split('/')[-4])
+
+    for i in range(1,1+len(isotope_str)):
+        if isotope_str[-1].isnumeric():
+            isotope_str = isotope_str[:-1]
+        else:
+            break
 
     # Drop header info
     df_header = df.iloc[0:2]
-    first_num = int(df_header.iloc[1].values[0][4:6])
+    first_line = df_header.iloc[1].values[0]
     df = df.drop([0,1])
 
-    markers = check(df)
-    #print(markers)
+    markers = check(first_line, df)
+    #print(markers) # for debugging
+
     if len(markers)==1:
-        # Discard first spectra
-        #print("2 spectra identified.")
-        df1 = df.iloc[:markers[0]-1,:]
-        df2 = df.iloc[markers[0]:,:]
-        spect_list = clean([df1,df2])
-        return(spect_list,first_num)
-    elif len(markers)>1:
-        print("Error: file contains more spectra than expected.")
-        sys.exit()
+        # One spectrum only
+        sp = lookup_table[(year_str,isotope_str)]
+
+        assert sp == int(markers[0][4:6]), f'If this fails, something has gone wrong.'
+
+        spect = clean([df])
+        #print(sp, spect.size) # for debugging
+        return(spect)
+    
+    elif len(markers)==2:
+        sp = lookup_table[(year_str,isotope_str)]
+
+        if sp == 11:
+            end_idx = df[df[0] == markers[1]].index[0] -2
+            spect = clean([df.iloc[:end_idx,:]])
+            #print(sp, spect.size) # for debugging
+            return(spect)
+        elif sp == 12:
+            start_idx = df[df[0] == markers[1]].index[0] -1 
+            spect = clean([df.iloc[start_idx:,:]])
+            #print(sp, spect.size) # for debugging
+            return(spect)
+        else:
+            raise ValueError(f'SP{sp} not expected.')
+    elif len(markers)==4:    
+        sp = lookup_table[(year_str,isotope_str)]
+        
+        if sp == 11:
+            end_idx = df[df[0] == markers[1]].index[0] -2
+            spect = clean([df.iloc[:end_idx,:]])
+            #print(sp, spect.size) # for debugging
+            return(spect)
+        elif sp == 12:
+            start_idx = df[df[0] == markers[1]].index[0] -1 
+            end_idx = df[df[0] == markers[2]].index[0] -2
+            spect = clean([df.iloc[start_idx:end_idx,:]])
+            #print(sp, spect.size) # for debugging
+            return(spect)
+        else:
+            raise ValueError(f'SP{sp} not expected.')
+
     else:
-        #print("Single spectra identified.")
-        spect_list = clean([df])
-        return(spect_list,first_num)
+        raise ValueError(f'Number of SP markers = {len(markers)} with markers {markers}.')
+
+    # #print(markers)
+    # if len(markers)==1:
+    #     # Discard first spectra
+    #     #print("2 spectra identified.")
+    #     df1 = df.iloc[:markers[0]-1,:]
+    #     df2 = df.iloc[markers[0]:,:]
+    #     spect_list = clean([df1,df2])
+    #     return(spect_list,first_num)
+    # elif len(markers)>1:    # if =2, there are 3 spectra
+    #     df_list = []
+    #     df_list.append(df.iloc[:markers[0]-1,:]) # first spectum
+    #     for i in range(len(markers)-1):
+    #         df_list.append(df.iloc[markers[i]:markers[i+1]-1,:])     # all spectra in between
+    #     df_list.append(df.iloc[markers[i+1]:,:])     # final spectrum
+    #     spect_list = clean(df_list)
+    #     return(spect_list,first_num)
+            
+    #     # print("Error: file contains more spectra than expected.")
+    #     # sys.exit()
+    # else:
+    #     #print("Single spectra identified.")
+    #     spect_list = clean([df])
+    #     return(spect_list,first_num)
 
 def get_file_df(dir):
     """Returns dataframe containing Path, Year, Quant, and Radioisotope infomation for each file."""
@@ -115,24 +215,26 @@ def get_file_df(dir):
     df = pd.DataFrame(dict_list)
     return(df)
 
-def get_data(file):
-    spect_list, first_num = parse_file(file)
+#def get_data(file):
+    # spect_list, first_num = parse_file(file)
 
-    # Remove unwanted spectrum
-    if len(spect_list)!=1:
-        means = [np.average(spect) for spect in spect_list]
-        spectrum = spect_list[means.index(max(means))]  #  Extract the one with the greatest signal (assuming one is always empty)
+    # # SP 11 for Ni-63, SP12 for Fe-55
 
-        # If it turns out both datasets are noise
-        if means[means.index(max(means))]<2:
-            # 3H background spectrum. Use first one
-            spectrum=spect_list[0]
-            return(spectrum.tolist())
-    else:
-        mean = np.average(spect_list[0])
-        spectrum=spect_list[0]
+    # # Remove unwanted spectrum
+    # if len(spect_list)==2:
+    #     means = [np.average(spect) for spect in spect_list]
+    #     spectrum = spect_list[means.index(max(means))]  #  Extract the one with the greatest signal (assuming one is always empty)
 
-    return(spectrum.tolist())
+    #     # If it turns out both datasets are noise
+    #     if means[means.index(max(means))]<2:
+    #         # 3H background spectrum. Use first one
+    #         spectrum=spect_list[0]
+    #         return(spectrum.tolist())
+    # else:
+    #     mean = np.average(spect_list[0])
+    #     spectrum=spect_list[0]
+
+    # return(spectrum.tolist())
 
 def quick_plot(spect_list,filename,first_num): # needs fixing
     """Quick plot spectrum/spectra.
@@ -242,7 +344,7 @@ def extract_registry(path):
             try:
                 row = line1 + line2 + line3 # Add first three lines
             except Exception as err:
-                print(err,len(rows),'\n',line1,line2,line3,printout_str) #'\n',len(rows),'\n',line1,'\n',line2,'\n',line3)
+                print(type(err),err,len(rows),'\n',line1,line2,line3,printout_str) #'\n',len(rows),'\n',line1,'\n',line2,'\n',line3)
                 sys.exit()
             for _line in lines456:
                 row += _line    # Add lines 4, 5, 6
@@ -308,7 +410,7 @@ def dataframe(df):
     #data_df = df.drop(["Year","Quant"], axis='columns')      # Remove unneccessary columns
     print("Retrieving spectra...")
     #data_df = pd.DataFrame()
-    df['Spectra'] = df["FILENAME"].apply(get_data)    # Getting data from file using get_data() from parse
+    df['Spectra'] = df["FILENAME"].apply(parse_file)    # Getting data from file using get_data() from parse
     #df.dropna(inplace=True)     # Removing rows with spectra = None
     #print(data_df.head())
     return(df)
@@ -402,11 +504,17 @@ def data_from_files(dir):
                         isotope='14C'
                     elif '36CL' in df_to_append['ISOTOPE'].iloc[0]:
                         isotope='Cl-36'
+                    elif '129I' in df_to_append['ISOTOPE'].iloc[0]:
+                        isotope='I-129'
+                    elif '55FE' in df_to_append['ISOTOPE'].iloc[0]:
+                        isotope='Fe-55'
+                    elif '63NI' in df_to_append['ISOTOPE'].iloc[0]:
+                        isotope='Ni-63'
                     else:
                         print("Error - not able to determine isotope pattern")
                         sys.exit()
 
-                    # Get calibration from .xls
+                    # Get calibration from .xlsx
                     for file in os.listdir(dir + folder):
                         if file.endswith(isotope+' Q-'+quant_no+'.xls') or (file.endswith(isotope+' Q-'+quant_no+'.xlsx')):
                             try:
@@ -419,7 +527,10 @@ def data_from_files(dir):
                                 sys.exit()
                     #with pd.option_context('display.max_rows', None, 'display.max_columns', None):  
                         #print(calib_excel_df)
-                    df_to_append['Activity [Bq]'] = calib_excel_df['A [Bq]'].values
+                    try:
+                        df_to_append['Activity [Bq]'] = calib_excel_df['A [Bq]'].values
+                    except Exception as err:
+                        print(type(err),err,'\n',df_to_append,calib_excel_df)
                     df_to_append['Activity +/- (2σ)'] = calib_excel_df[' +/- (2σ)'].values
                     df_to_append['Counting efficiency [%]'] = calib_excel_df['Counting efficiency [%]'].values
                     df_to_append['Counting efficiency +/- (2σ)'] = calib_excel_df[' +/- (2σ).5'].values
