@@ -1,55 +1,7 @@
-## How this code (will eventually) work:
-
-# Subtract background radiation from each sample
-# Correct for SQP efficiencies
-# Divide by runtime to get spectra in CPM
-
-## SQP Standardization / Transformation (WIP) - Interpolated Warping, NN, Dynamic time warping, ???
-# Need a function T that takes input spectrum S_i and its SQP q_i, and outputs the spectrum S_i,target at the SQP zero point: T(S_i ,q_i ) ≈ S_{i,target}
-# Should be the same across all spectra, regardless of the species present. 
-# Fit transformation to just the 14C data? All have activities around 10.5 Bq so that shouldn't be an issue (add a condition for this in case we get more 14C data later)
-# Target spectrum (zero point) will need to be a selection of spectra in a bin (range) around the zero point (maybe +/- 5??) and smoothed?
-# Apply transformation to whole dataset
- 
-## Create arteficial combinations
-# Match single spectra with similar quench (within uncertainty range)
-# Add them together, keeping track of their individual activities, and append these new artificial entries
-# Savgol filter
-
-# At this point we have an SQP-corrected (at ~710), efficiency corrected, and CPM corrected dataset of original spectra plus arteficial combinations
-# Validate that spectra of similar SQP have peaks around the same point and those that have similar activity have similar AUC  
-
-## Classification data pipeline - dataset here needs to be balanced
-# Normalise each spectrum (to 0 - 1?) - make a copy as you will need the unnormalsied spectra later
-# Undersample all classes to 1000
-# For each class, oversample to 1000 using random noise or SMOTE by matching SQP AND isotope activity (or use SMOTE for as much as you can, only using random noise to fill the remaining data)
-# Test/train split for classifier
-# Apply PCA_classifier (different to PCA_regressor as data has been normalised between 0 and 1)
-# Train classifer (haven't decided whether to use a rand forest here or a neural net - if i use neural net I can combine the classifer and regressor into a hybrid model class)
-
-## Regressor data pipeline
-# Create Regression Heads for each species combination by doing:
-# regression_heads = {
-#     "species_1": build_regression_head("species_1"),
-#     "species_2": build_regression_head("species_2"),
-#     "species_3": build_regression_head("species_3"),
-#     "species_1_2": build_regression_head("species_1_2"),
-#     "species_1_3": build_regression_head("species_1_3"),
-#     "species_2_3": build_regression_head("species_2_3"),
-#     "species_1_2_3": build_regression_head("species_1_2_3"),
-# }
-# Dataset needs not be balanced here as there is a regressor for each radioisotope combination 
-# Continue with UNNORMALISED DATA, splitting between each species
-# Test/train split for each regressor head 
-# Apply PCA_regressor
-# Train neural nets
+# Alex Corbett, University of Bristol, 2025
 
 from parse import *
-import sys
 import os
-from itertools import combinations
-import random
-from datetime import datetime
 
 # Numpy, pandas, matplotlib
 import pandas as pd
@@ -62,40 +14,23 @@ from matplotlib.ticker import MultipleLocator
 plt.style.use('bmh')
 
 # Scipy
-import scipy.sparse as sparse
-from scipy.sparse.linalg import spsolve
 from scipy.signal import savgol_filter,find_peaks
 from scipy.interpolate import interp1d
 from scipy.optimize import nnls
-from scipy.stats import gmean
 from scipy.linalg import qr
 
 # Sklearn
 import sklearn
-from sklearn import tree
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.preprocessing import MultiLabelBinarizer,StandardScaler,MinMaxScaler
-from sklearn.decomposition import PCA
+#from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.multioutput import MultiOutputRegressor
-from sklearn.metrics import multilabel_confusion_matrix,classification_report,hamming_loss,precision_recall_curve,auc,mean_squared_error
-from sklearn.pipeline import Pipeline, make_pipeline
-from sklearn.linear_model import Ridge
-
-# Tensorflow
-import tensorflow as tf
-from tensorflow.python import keras
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Softmax, Input
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.utils import plot_model
-from tensorflow.keras import backend as K
-from tensorflow.keras import losses
+#from sklearn.metrics import multilabel_confusion_matrix,classification_report,hamming_loss,precision_recall_curve,auc,mean_squared_error
+#from sklearn.pipeline import Pipeline, make_pipeline
 
 # Tqdm
 from tqdm import tqdm
-
 
 # Ignore pandas performance warning
 from warnings import simplefilter
