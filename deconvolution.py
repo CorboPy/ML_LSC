@@ -197,12 +197,19 @@ class SpectraSavGolTransformer(BaseEstimator, TransformerMixin):
 ########################### MODEL CLASSES ################################
 
 class IsotopeModel():
-    def __init__(self, isotope, X_train, Y_train, delta=1e-6):
+    def __init__(self, isotope, X_train, Y_train, fit_info, delta=1e-6):
         self.name = isotope
         self.delta = delta   # For zero replacement
 
         self.X_train = self.ensure_numpy(X_train)
         self.Y_train = self.ensure_numpy(Y_train)
+
+        # Efficiency fit info ['Ax^2','Bx','C','R^2','FitErr']
+        self.A = fit_info['Ax^2']
+        self.B = fit_info['Bx']
+        self.C = fit_info['C']
+        self.R2 = fit_info['R^2']
+        self.FitErr = fit_info['FitErr']
 
     def __str__(self):
         return f"IsotopeModel({self.name})"
@@ -228,7 +235,11 @@ class IsotopeModel():
         self.model = MultiOutputRegressor(RandomForestRegressor(n_estimators=50,max_depth=5))  # random forest for each channel
         self.model.fit(self.X_train.reshape(-1, 1), Y_train_ilr)
 
-    def predict(self,X_new):
+    def predict(self,X_new):    # X_new is list of SQP(s) of unseen sample(s)
+
+        # Check X_new lies within trained SQP range
+        self.check_sqp(np.array(X_new))
+
         X_new = self.ensure_numpy(X_new)
         Y_ilr_pred = self.model.predict(X_new.reshape(-1, 1))  # X_new: new inputs
         Y_pred = self.ilr_inverse(Y_ilr_pred, self.basis)  # back to composition space
@@ -254,11 +265,31 @@ class IsotopeModel():
         c = np.exp(log_c)
         return c / c.sum(axis=1, keepdims=True)
 
+    def get_efficiency(self,X_new): # X_new is SQP of unseen sample
+        """ Returns counting efficiency at unseen SQP (X_new) for this radioisotope, checking that it lies within training range """
+        self.check_sqp(np.array(X_new)) # Check X_new lies within trained SQP range
+        #print(self.A, self.B, self.C)
+        #print(((self.A * (X_new)**2 ) + ( self.B * X_new ) + ( self.C ) )* 0.01)
+        return( ((self.A * (X_new)**2 ) + ( self.B * X_new ) + ( self.C )) * 0.01 )   # 0.01 to convert to decimal from %
+    
+    def check_sqp(self,sqp):
+        """ Checks sqp lies within the range of training data """
+        # Check X_new lies within trained SQP range
+        if np.any(sqp < np.min(self.X_train)):
+            raise ValueError(f'{self.name}: Extrapolation! Requested SQP: {sqp} contains less than min trained SQP: {np.min(self.X_train)}')
+        elif np.any(sqp > np.max(self.X_train)):
+            raise ValueError(f'{self.name}: Extrapolation! Requested SQP: {sqp} contains greater than max trained SQP: {np.max(self.X_train)}')
+
 class LSC_Model():
     def __init__(self, libraries,cols):   # (libraries = list of all the SQP+cols df for each radioisotope)
         self.libraries = libraries
         self.cols = cols
         self.names = [library.name for library in self.libraries]
+
+        # Check efficiency fit info has been entered correctly (i.e. is the same for all entries)
+        for library in libraries:
+            all_same = (library[['Ax^2','Bx','C','R^2','FitErr']].nunique() == 1).all()
+            assert all_same, f'Calibration efficiency fit info mismatch for {library.name}!'
         
         # might remove
         self.data_h3 = libraries[0]
@@ -285,8 +316,11 @@ class LSC_Model():
             # test train split
             X_train, X_test, Y_train, Y_test = train_test_split(library['SQP'], library[self.cols], test_size=test_size, random_state=random_state)
 
+            # Extract fit info (pd series)
+            fit_info = library[['Ax^2','Bx','C','R^2','FitErr']].iloc[1]
+
             # Create IsotopeModel for each isotope
-            model = IsotopeModel(library.name,X_train,Y_train)
+            model = IsotopeModel(library.name,X_train,Y_train,fit_info)
             model.fit()
 
             test.append((X_test,Y_test))
@@ -470,17 +504,21 @@ def animate_sqp(isotope_library,N):
     print(cmd)
     os.system(cmd)
 
-def estimate_activities(measured_spectrum, sqp, models_dict):
+def estimate_activities(measured_spectrum, sqp, models_dict):   # CURRENTLY ONLY HANDLES ONE SPECTRUM AT A TIME ! (measured_spectrum must be 1D, sqp must be float)
     """ Deconvolution of measured_spectrum into models_dict given sqp of measured_spectrum. Returns NNLS coefficients and the deconvoluted radioisotope spectra in CPM. """
+    print(f'Computing deconvolution using models for {[model.name for model in models_dict.values()]}...')
     # Create the matrix of expected spectra at the measured SQP(E) from interpolate_spectrum
     isotope_shapes = [model.predict(np.array([sqp])) for model in models_dict.values()]  # shape: (n_channels, 6) where 6 is for 3h, 14c, 36cl, 55fe, 63ni, 129i in that order 
     shape_matrix = np.vstack(isotope_shapes).T 
+
+    # Get counting efficiencies for each radioisotope from fitted polynmomial in corresponding calibration cert 
+    counting_efficiencies = np.array([model.get_efficiency(sqp) for model in models_dict.values()]).flatten()
     
     # Use non-negative least squares (NNLS) to solve for activities
     # this finds the best-fit coefficients to the isotope spectra (in the matrix) such that it approximates the measured spectrum.
     activity_estimates, _ = nnls(shape_matrix, measured_spectrum)
     
-    return activity_estimates, isotope_shapes   # [H-3 coeff, C-14 coeff, Cl-36 coeff, etc]
+    return activity_estimates, isotope_shapes, counting_efficiencies   # [H-3 coeff, C-14 coeff, Cl-36 coeff, etc]
 
 
 ########################### MAIN ################################
@@ -500,6 +538,7 @@ def main():
         print("transformed_data.xlsx found. Opening...")
         df = pd.read_excel('transformed_data.xlsx',engine='openpyxl')
         #print(df)
+
 
     # Count combiations
     category_counts = count_categories(df)
@@ -537,21 +576,42 @@ def main():
     pure_129i_df = df_copy[df_copy['Category'].isin(['129I'])]
 
     #Plotting sqp vs channel 300 for 14c and 3h
-    plt.scatter(pure_14c_df['SQP'].to_numpy(),pure_14c_df[300].to_numpy(),color='r')
+    # plt.scatter(pure_14c_df['SQP'].to_numpy(),pure_14c_df[300].to_numpy(),color='r')
+    # plt.xlabel('SQP')
+    # plt.ylabel('Ch300')
+    # plt.show()
+    # plt.scatter(pure_3h_df['SQP'].to_numpy(),pure_3h_df[200].to_numpy(),color='r')
+    # plt.xlabel('SQP')
+    # plt.ylabel('Ch200')
+    # plt.show()
+    # plt.scatter(pure_55fe_df['SQP'].to_numpy(),pure_55fe_df[200].to_numpy(),color='r')
+    # plt.xlabel('SQP')
+    # plt.ylabel('Ch200')
+    # plt.show()
+
+    # Plotting SQP space covered by the model
+    plt.style.use('default')
+    sqp_maxs = [np.max(pure_3h_df['SQP'].to_numpy()),np.max(pure_14c_df['SQP'].to_numpy()) ,np.max(pure_36cl_df['SQP'].to_numpy()) ,np.max(pure_55fe_df['SQP'].to_numpy()) ,np.max(pure_63ni_df['SQP'].to_numpy()) ,np.max(pure_129i_df['SQP'].to_numpy())]
+    sqp_mins = [np.min(pure_3h_df['SQP'].to_numpy()),np.min(pure_14c_df['SQP'].to_numpy()) ,np.min(pure_36cl_df['SQP'].to_numpy()) ,np.min(pure_55fe_df['SQP'].to_numpy()) ,np.min(pure_63ni_df['SQP'].to_numpy()) ,np.min(pure_129i_df['SQP'].to_numpy())]
+    max_model_sqp = np.min(sqp_maxs)
+    min_model_sqp = np.max(sqp_mins)
+    print(f'Model operating range: {min_model_sqp} to {max_model_sqp}')
+
+    plt.plot(pure_3h_df['SQP'].to_numpy(), pure_3h_df['Counting efficiency [%]'].to_numpy(),label='3H')
+    plt.plot(pure_14c_df['SQP'].to_numpy(), pure_14c_df['Counting efficiency [%]'].to_numpy(),label='14C')
+    plt.plot(pure_36cl_df['SQP'].to_numpy(), pure_36cl_df['Counting efficiency [%]'].to_numpy(),label='36CL')
+    plt.plot(pure_55fe_df['SQP'].to_numpy(), pure_55fe_df['Counting efficiency [%]'].to_numpy(),label='55FE')
+    plt.plot(pure_63ni_df['SQP'].to_numpy(), pure_63ni_df['Counting efficiency [%]'].to_numpy(),label='63NI')
+    plt.plot(pure_129i_df['SQP'].to_numpy(), pure_129i_df['Counting efficiency [%]'].to_numpy(),label='129I')
+    plt.axvspan(min_model_sqp, max_model_sqp, color='gray', alpha=0.5,label='Model Operating Range')
+    plt.legend()
     plt.xlabel('SQP')
-    plt.ylabel('Ch300')
+    plt.ylabel('Counting Efficiency [%]')
     plt.show()
-    plt.scatter(pure_3h_df['SQP'].to_numpy(),pure_3h_df[200].to_numpy(),color='r')
-    plt.xlabel('SQP')
-    plt.ylabel('Ch200')
-    plt.show()
-    plt.scatter(pure_55fe_df['SQP'].to_numpy(),pure_55fe_df[200].to_numpy(),color='r')
-    plt.xlabel('SQP')
-    plt.ylabel('Ch200')
-    plt.show()
+    plt.style.use('bmh')
 
     # Get libraries of pure radioisotopes
-    cols_to_filter = cols + ['SQP']
+    cols_to_filter = cols + ['SQP','Ax^2','Bx','C','R^2','FitErr']
     library_14c = pure_14c_df[cols_to_filter] 
     library_3h = pure_3h_df[cols_to_filter]     
     library_36cl = pure_36cl_df[cols_to_filter]     
@@ -572,6 +632,44 @@ def main():
     print(LSCModels)
 
     pure_test_data = LSCModels.fit_models() #test_size=0.2,random_state=42)
+
+    ############################
+
+    # Unseen test
+    unseen_file = 'LSC Spectra for AI proj/Unseen/Q072701N.001' # Q-1, 2025
+    unseen_spect = parse_file(unseen_file,unseen=True)
+    print('LSC Spectra for AI proj/Unseen/Q072701N.001 opened sucessfully')
+    unseen_sqp = 728.68
+    # should implement check for year in order to find the most recent calibration to train model on , but this is not implemented yet
+    dict_minus_55fe = LSCModels.models
+    dict_minus_55fe.pop('55FE')
+    estimated_cpms, isotope_shapes, counting_efficiencies = estimate_activities(
+        unseen_spect, unseen_sqp, dict_minus_55fe
+    )  
+    print(counting_efficiencies)
+    print(estimated_cpms)
+    dpms = estimated_cpms/counting_efficiencies
+    print(pd.DataFrame([dpms],columns=['3H', '14C', '36CL', '63NI', '129I']).to_string(index=False))
+    names = ['3H', '14C', '36CL', '63NI', '129I']
+
+    tot= np.zeros(len(cols))
+    for k, isotope_shape in enumerate(isotope_shapes):
+        plt.plot(cols, isotope_shape.squeeze()*estimated_cpms[k],label=f'pred_{names[k]}',linewidth=1)
+        tot += isotope_shape.squeeze()*estimated_cpms[k]
+
+    mse = np.mean((unseen_spect - tot) ** 2)
+    print(f'MSE = {mse}')
+
+    plt.plot(cols, unseen_spect, label = 'Actual',color='dimgrey',linestyle='dotted',linewidth=0.5)
+    plt.plot(cols,tot,label='Pred sum',color='black',zorder=20)
+    plt.ylabel('CPM')
+    plt.legend()
+    plt.show()
+    plt.close()
+    sys.exit()
+
+    ############################
+
 
     # Get fe55 test data
     pure_test_fe55 = pure_test_data[3]

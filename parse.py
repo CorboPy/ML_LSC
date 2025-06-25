@@ -49,17 +49,15 @@ def clean(df_list):
 
     return(np.array(spect))
 
-def parse_file(filename):
+def parse_file(filename,unseen=False):
     """Extracts spectrum/spectra from .001 file.
 
     Args:
         filename (str): Relative or absolute path to .001 file
+        unseen (bool): Boolean to indicate whether file is unseen or part of model trianing data.
 
     Returns:
-        tuple: (spect_list,first_num,isotope). 
-            spect_list (list): Python list containing numpy array(s) of the spectrum/spectra. If only 1 spectrum in file, len(spect_list) = 1
-            first_num (int): First spectra number as displayed in the file header
-            #REMOVED# isotope (str): Isotope info derived from base directory. e.g. 36CL = Chlorine-36
+        spect (list): Numpy array of the spectrum.
     """
     # create lookup library of which spectrum to use for year / isotope
     lookup_table = {
@@ -99,16 +97,21 @@ def parse_file(filename):
         print(err,'. Ensure path has form e.g. "/dir1/dir2/dir3/36CL2/Q014101N.001"')
         sys.exit()
     
-    # filanem = C:\Users\alexc\Documents\#Uni\ML_LSC\LSC Spectra for AI proj\2025\Quant 3\36CL18\Q0...
-    isotope_str = filename.split('/')[-2]  # .apply(lambda x: x.split('Quant ')[1].split('/')[1])
-    quant = int(filename.split('/')[-3][-1])
-    year_str = int(filename.split('/')[-4])
-
-    for i in range(1,1+len(isotope_str)):
-        if isotope_str[-1].isnumeric():
-            isotope_str = isotope_str[:-1]
-        else:
-            break
+    # Temp solution for parsing unseen spectrum
+    if unseen:
+        isotope_str=None
+        quant=None
+        year_str=None
+    else:
+        # filanem = C:\Users\alexc\Documents\#Uni\ML_LSC\LSC Spectra for AI proj\2025\Quant 3\36CL18\Q0...
+        isotope_str = filename.split('/')[-2]  # .apply(lambda x: x.split('Quant ')[1].split('/')[1])
+        quant = int(filename.split('/')[-3][-1])
+        year_str = int(filename.split('/')[-4])
+        for i in range(1,1+len(isotope_str)):
+            if isotope_str[-1].isnumeric():
+                isotope_str = isotope_str[:-1]
+            else:
+                break
 
     # Drop header info
     df_header = df.iloc[0:2]
@@ -119,16 +122,25 @@ def parse_file(filename):
     #print(markers) # for debugging
 
     if len(markers)==1:
-        # One spectrum only
-        sp = lookup_table[(year_str,isotope_str)]
+        
+        if unseen: # Temp solution for parsing unseen spectrum
+            sp = 11
+            spect = clean([df])
+            return(spect)
+        
+        else:
+            # One spectrum only
+            sp = lookup_table[(year_str,isotope_str)]
 
-        assert sp == int(markers[0][4:6]), f'If this fails, something has gone wrong.'
+            assert sp == int(markers[0][4:6]), f'If this fails, something has gone wrong.'
 
-        spect = clean([df])
-        #print(sp, spect.size) # for debugging
-        return(spect)
+            spect = clean([df])
+            #print(sp, spect.size) # for debugging
+            return(spect)
     
     elif len(markers)==2:
+        if unseen:
+            raise NotImplementedError('Parsing unseen files with multiple spectra (i.e. SP11 and SP12 in same file) is not currently supported.')
         sp = lookup_table[(year_str,isotope_str)]
 
         if sp == 11:
@@ -144,6 +156,8 @@ def parse_file(filename):
         else:
             raise ValueError(f'SP{sp} not expected.')
     elif len(markers)==4:    
+        if unseen:
+            raise NotImplementedError('Parsing unseen files with multiple spectra (i.e. SP11 and SP12 in same file) is not currently supported.')
         sp = lookup_table[(year_str,isotope_str)]
         
         if sp == 11:
@@ -161,6 +175,8 @@ def parse_file(filename):
             raise ValueError(f'SP{sp} not expected.')
 
     else:
+        if unseen:
+            raise NotImplementedError('Parsing unseen files with multiple spectra (i.e. SP11 and SP12 in same file) is not currently supported.')
         raise ValueError(f'Number of SP markers = {len(markers)} with markers {markers}.')
 
     # #print(markers)
@@ -518,9 +534,22 @@ def data_from_files(dir):
                     for file in os.listdir(dir + folder):
                         if file.endswith(isotope+' Q-'+quant_no+'.xls') or (file.endswith(isotope+' Q-'+quant_no+'.xlsx')):
                             try:
+                                # Big table
                                 calib_excel_df = pd.read_excel(dir+folder+'/'+file, sheet_name='Calculation',usecols="A:U", skiprows=24, nrows=len(df_to_append.index),engine='openpyxl')
                                 calib_excel_df.index = np.arange(1, len(calib_excel_df)+1)
+
+                                # Calibration fit info on row 42
+                                row_42 = pd.read_excel(
+                                    dir + folder + '/' + file,
+                                    sheet_name='Calculation',
+                                    usecols="A:E",
+                                    skiprows=41,
+                                    nrows=1,
+                                    header=None,
+                                    engine='openpyxl'
+                                )
                                 print("Opening 'Calculation' worksheet in "+file)
+                                print(row_42)
                             except Exception as err:
                                 print(err)
                                 print('Error - calibration .xls(x): '+dir+folder+'/'+file+' not openable for '+dir+folder+'/'+subfolder+'/'+subsubfolder)
@@ -534,7 +563,7 @@ def data_from_files(dir):
                     df_to_append['Activity +/- (2σ)'] = calib_excel_df[' +/- (2σ)'].values
                     df_to_append['Counting efficiency [%]'] = calib_excel_df['Counting efficiency [%]'].values
                     df_to_append['Counting efficiency +/- (2σ)'] = calib_excel_df[' +/- (2σ).5'].values
-
+                    df_to_append[['Ax^2','Bx','C','R^2','FitErr']] = row_42.values[0]   # Efficiency fit
 
                     # Check SQP matches
                     df_to_append_sqp = df_to_append['SQP'].copy()
