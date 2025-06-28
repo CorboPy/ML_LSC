@@ -49,7 +49,7 @@ def clean(df_list):
 
     return(np.array(spect))
 
-def parse_file(filename,unseen=False):
+def parse_file(filename,unseen=False,sp=None):
     """Extracts spectrum/spectra from .001 file.
 
     Args:
@@ -123,25 +123,27 @@ def parse_file(filename,unseen=False):
 
     if len(markers)==1:
         
-        if unseen: # Temp solution for parsing unseen spectrum
-            sp = 11
-            spect = clean([df])
-            return(spect)
+        # if unseen: # Temp solution for parsing unseen spectrum
+        #     sp = 11
+        #     spect = clean([df])
+        #     return(spect)
         
-        else:
-            # One spectrum only
+        # else:
+
+        # One spectrum only
+        if not unseen:
             sp = lookup_table[(year_str,isotope_str)]
 
-            assert sp == int(markers[0][4:6]), f'If this fails, something has gone wrong.'
+        assert sp == int(markers[0][4:6]), f'If this fails, something has gone wrong.'
 
-            spect = clean([df])
-            #print(sp, spect.size) # for debugging
-            return(spect)
+        spect = clean([df])
+        #print(sp, spect.size) # for debugging
+        return(spect)
     
     elif len(markers)==2:
-        if unseen:
-            raise NotImplementedError('Parsing unseen files with multiple spectra (i.e. SP11 and SP12 in same file) is not currently supported.')
-        sp = lookup_table[(year_str,isotope_str)]
+        # if unseen:
+        #     raise NotImplementedError('Parsing unseen files with multiple spectra (i.e. SP11 and SP12 in same file) is not currently supported.')
+        # sp = lookup_table[(year_str,isotope_str)]
 
         if sp == 11:
             end_idx = df[df[0] == markers[1]].index[0] -2
@@ -156,9 +158,9 @@ def parse_file(filename,unseen=False):
         else:
             raise ValueError(f'SP{sp} not expected.')
     elif len(markers)==4:    
-        if unseen:
-            raise NotImplementedError('Parsing unseen files with multiple spectra (i.e. SP11 and SP12 in same file) is not currently supported.')
-        sp = lookup_table[(year_str,isotope_str)]
+        # if unseen:
+        #     raise NotImplementedError('Parsing unseen files with multiple spectra (i.e. SP11 and SP12 in same file) is not currently supported.')
+        # sp = lookup_table[(year_str,isotope_str)]
         
         if sp == 11:
             end_idx = df[df[0] == markers[1]].index[0] -2
